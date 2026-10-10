@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Car Usage Tracker",
+        "description": "Select the odometer sensor and configure trip detection.",
+        "data": {
+          "odometer_entity": "Odometer entity",
+          "idle_minutes": "Minutes without odometer change that end a trip",
+          "drivers": "Drivers"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only one instance is supported."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Car Usage Tracker",
+        "data": {
+          "odometer_entity": "Odometer entity",
+          "idle_minutes": "Minutes without odometer change that end a trip",
+          "drivers": "Drivers"
+        }
+      }
+    }
+  }
+}
