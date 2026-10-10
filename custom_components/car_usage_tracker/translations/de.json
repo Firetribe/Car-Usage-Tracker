@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Car Usage Tracker",
+        "description": "Wähle den Kilometerstands-Sensor und konfiguriere die Fahrtenerkennung.",
+        "data": {
+          "odometer_entity": "Kilometerstands-Entität",
+          "idle_minutes": "Anzahl Minuten ohne Kilometerstandsänderung, nach der eine Fahrt beendet wird",
+          "drivers": "Fahrer*innen"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Es wird nur eine Instanz unterstützt."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Car Usage Tracker",
+        "data": {
+          "odometer_entity": "Kilometerstands-Entität",
+          "idle_minutes": "Anzahl Minuten ohne Kilometerstandsänderung, nach der eine Fahrt beendet wird",
+          "drivers": "Fahrer*innen"
+        }
+      }
+    }
+  }
+}
