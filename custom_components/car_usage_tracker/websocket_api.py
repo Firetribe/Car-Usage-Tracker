@@ -11,8 +11,10 @@ from .const import DOMAIN, SIGNAL_UPDATED
 
 
 def _get_coordinator(hass: HomeAssistant):
-    entries = hass.data.get(DOMAIN, {})
-    return next(iter(entries.values()), None)
+    for key, value in hass.data.get(DOMAIN, {}).items():
+        if not key.startswith("_"):
+            return value
+    return None
 
 
 def _payload(coordinator) -> dict:
