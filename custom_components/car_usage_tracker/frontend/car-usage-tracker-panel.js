@@ -1,4 +1,4 @@
-const VERSION = "0.3.2";
+const VERSION = "0.3.3";
 const STRINGS = {
   en: {
     title: "Car Usage", noCars: "No cars configured. Add one under Settings \u2192 Devices & services \u2192 Car Usage Tracker.",
