@@ -88,14 +88,9 @@ class CarUsageTrackerPanel extends HTMLElement {
   }
 
   _esc(s) {
-    const map = {
-      "&": "&",
-      "<": "<",
-      ">": ">",
-      '"': """,
-      "'": "'",
-    };
-    return String(s).replace(/[&<>"']/g, (c) => map[c]);
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return "&#" + c.charCodeAt(0) + ";";
+    });
   }
 
   _consumptionCell(car, t) {
