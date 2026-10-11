@@ -42,10 +42,10 @@ def ws_get_data(hass, connection, msg):
 def ws_assign(hass, connection, msg):
     car = _cars(hass).get(msg["entry_id"])
     if car is None:
-        connection.send_error(msg["id"], "not_found", "Car not found")
+        connection.send_error(msg["id"], "not_found", "not_found_car")
         return
     if not car.assign_drivers(msg["trip_id"], msg["drivers"]):
-        connection.send_error(msg["id"], "not_found", "Trip not found")
+        connection.send_error(msg["id"], "not_found", "not_found_trip")
         return
     connection.send_result(msg["id"], {"ok": True})
 
@@ -62,7 +62,7 @@ def ws_assign(hass, connection, msg):
 def ws_delete(hass, connection, msg):
     car = _cars(hass).get(msg["entry_id"])
     if car is None or not car.delete_trip(msg["trip_id"]):
-        connection.send_error(msg["id"], "not_found", "Trip not found")
+        connection.send_error(msg["id"], "not_found", "not_found_trip")
         return
     connection.send_result(msg["id"], {"ok": True})
 

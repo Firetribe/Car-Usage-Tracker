@@ -18,10 +18,10 @@ async def async_setup_entry(
     car: CarTracker = hass.data[DOMAIN]["cars"][entry.entry_id]
 
     entities: list[CarSensor] = [
-        CarSensor(car, "total_km", "Total km", "km", lambda c: c.totals()["total_km"]),
-        CarSensor(car, "unassigned_km", "Unassigned km", "km", lambda c: c.totals()["unassigned_km"]),
+        CarSensor(car, "total_km", "total_km", "km", lambda c: c.totals()["total_km"]),
+        CarSensor(car, "unassigned_km", "unassigned_km", "km", lambda c: c.totals()["unassigned_km"]),
         CarSensor(
-            car, "open_trip_km", "Current trip", "km",
+            car, "open_trip_km", "open_trip_km", "km",
             lambda c: round(
                 (c.open_trip["end_km"] - c.open_trip["start_km"]), 1
             ) if c.open_trip and c.open_trip.get("end_km") is not None else 0.0,
@@ -32,7 +32,7 @@ async def async_setup_entry(
     if car.battery_entity and car.capacity:
         entities.append(
             CarSensor(
-                car, "avg_consumption", "Average consumption", "kWh/100km",
+                car, "avg_consumption", "avg_consumption", "kWh/100km",
                 lambda c: c.totals()["consumption"],
             )
         )
@@ -40,7 +40,7 @@ async def async_setup_entry(
     for driver in car.drivers:
         entities.append(
             CarSensor(
-                car, f"driver_{driver.lower().replace(' ', '_')}_km", f"{driver} km", "km",
+                car, f"driver_{driver.lower().replace(' ', '_')}_km", "driver_km", "km",
                 lambda c, d=driver: c.totals()["drivers"].get(d, {}).get("km", 0.0),
             )
         )
@@ -59,7 +59,8 @@ class CarSensor(SensorEntity):
     ) -> None:
         self._car = car
         self._value_fn = value_fn
-        self._attr_name = name
+        self._attr_translation_key = name
+        self._attr_name = None
         self._attr_native_unit_of_measurement = unit
         self._attr_state_class = state_class
         self._attr_unique_id = f"{car.entry.entry_id}_{key}"
