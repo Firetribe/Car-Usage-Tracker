@@ -6,6 +6,7 @@ class CarUsageTrackerPanel extends HTMLElement {
     this._selected = null;
     this._unsub = null;
     this._loaded = false;
+    this._hass = null;
   }
 
   set hass(hass) {
@@ -38,7 +39,7 @@ class CarUsageTrackerPanel extends HTMLElement {
   async _load() {
     try {
       const res = await this._hass.callWS({ type: "car_usage_tracker/get_data" });
-      this._cars = res.cars;
+      this._cars = Array.isArray(res.cars) ? res.cars : [];
       if (!this._cars.find((c) => c.entry_id === this._selected)) {
         this._selected = this._cars.length ? this._cars[0].entry_id : null;
       }
@@ -54,13 +55,17 @@ class CarUsageTrackerPanel extends HTMLElement {
   }
 
   async _toggleDriver(trip, driver) {
-    const set = new Set(trip.drivers);
-    set.has(driver) ? set.delete(driver) : set.add(driver);
+    const set = new Set(trip.drivers || []);
+    if (set.has(driver)) {
+      set.delete(driver);
+    } else {
+      set.add(driver);
+    }
     await this._hass.callWS({
       type: "car_usage_tracker/assign_drivers",
       entry_id: this._selected,
       trip_id: trip.id,
-      drivers: [...set],
+      drivers: Array.from(set),
     });
   }
 
@@ -75,16 +80,22 @@ class CarUsageTrackerPanel extends HTMLElement {
 
   _fmtDate(iso) {
     if (!iso) return "–";
-    return new Date(iso).toLocaleString(this._hass?.locale?.language, {
+    const lang = this._hass && this._hass.locale ? this._hass.locale.language : undefined;
+    return new Date(iso).toLocaleString(lang, {
       dateStyle: "short",
       timeStyle: "short",
     });
   }
 
   _esc(s) {
-    return String(s).replace(/[&<>"']/g, (c) => ({
-      "&": "&", "<": "<", ">": ">", '"': """, "'": "'",
-    }[c]));
+    const map = {
+      "&": "&",
+      "<": "<",
+      ">": ">",
+      '"': """,
+      "'": "'",
+    };
+    return String(s).replace(/[&<>"']/g, (c) => map[c]);
   }
 
   _consumptionCell(car, t) {
@@ -107,31 +118,42 @@ class CarUsageTrackerPanel extends HTMLElement {
     }
 
     const car = this._car;
+    const drivers = car.drivers || [];
+    const trips = car.trips || [];
+    const totals = car.totals || { drivers: {}, total_km: 0, total_kwh: 0, unassigned_km: 0, consumption: null };
+    const totalDrivers = totals.drivers || {};
+
     const tabs = this._cars
-      .map((c) => `<button class="tab ${c.entry_id === this._selected ? "active" : ""}"
-        data-car="${c.entry_id}">${this._esc(c.name)}</button>`)
+      .map(
+        (c) => `<button class="tab ${c.entry_id === this._selected ? "active" : ""}"
+        data-car="${c.entry_id}">${this._esc(c.name)}</button>`
+      )
       .join("");
 
-    const totals = car.totals;
-    const driverCards = car.drivers
+    const driverCards = drivers
       .map((d) => {
-        const v = totals.drivers[d] || { km: 0, kwh: 0, consumption: null };
+        const v = totalDrivers[d] || { km: 0, kwh: 0, consumption: null };
+        const extra = car.has_battery
+          ? `<div class="sub">${v.kwh} kWh${v.consumption != null ? ` · ${v.consumption} kWh/100 km` : ""}</div>`
+          : "";
         return `<div class="card">
           <div class="label">${this._esc(d)}</div>
           <div class="big">${v.km} km</div>
-          ${car.has_battery ? `<div class="sub">${v.kwh} kWh${
-            v.consumption != null ? ` · ${v.consumption} kWh/100 km` : ""}</div>` : ""}
+          ${extra}
         </div>`;
       })
       .join("");
 
-    const rows = car.trips
+    const rows = trips
       .map((t) => {
-        const chips = car.drivers
-          .map((d) => `<button class="chip ${t.drivers.includes(d) ? "on" : ""}"
-            data-trip="${t.id}" data-driver="${this._esc(d)}">${this._esc(d)}</button>`)
+        const tripDrivers = t.drivers || [];
+        const chips = drivers
+          .map(
+            (d) => `<button class="chip ${tripDrivers.includes(d) ? "on" : ""}"
+            data-trip="${t.id}" data-driver="${this._esc(d)}">${this._esc(d)}</button>`
+          )
           .join("");
-        return `<tr class="${t.drivers.length ? "" : "unassigned"}">
+        return `<tr class="${tripDrivers.length ? "" : "unassigned"}">
           <td>${this._fmtDate(t.start)}</td>
           <td>${t.distance} km</td>
           ${this._consumptionCell(car, t)}
@@ -141,9 +163,13 @@ class CarUsageTrackerPanel extends HTMLElement {
       })
       .join("");
 
-    const open = car.open_trip && car.open_trip.end_km != null
-      ? `<div class="open">Trip in progress: ${
-          (car.open_trip.end_km - car.open_trip.start_km).toFixed(1)} km</div>`
+    const open =
+      car.open_trip && car.open_trip.end_km != null && car.open_trip.start_km != null
+        ? `<div class="open">Trip in progress: ${(car.open_trip.end_km - car.open_trip.start_km).toFixed(1)} km</div>`
+        : "";
+
+    const totalExtra = car.has_battery
+      ? `<div class="sub">${totals.total_kwh} kWh${totals.consumption != null ? ` · ${totals.consumption} kWh/100 km` : ""}</div>`
       : "";
 
     root.innerHTML = `${this._style()}
@@ -155,8 +181,7 @@ class CarUsageTrackerPanel extends HTMLElement {
           <div class="card total">
             <div class="label">Total</div>
             <div class="big">${totals.total_km} km</div>
-            ${car.has_battery ? `<div class="sub">${totals.total_kwh} kWh${
-              totals.consumption != null ? ` · ${totals.consumption} kWh/100 km` : ""}</div>` : ""}
+            ${totalExtra}
           </div>
           ${driverCards}
           <div class="card ${totals.unassigned_km > 0 ? "warn" : ""}">
@@ -176,17 +201,23 @@ class CarUsageTrackerPanel extends HTMLElement {
       </div>`;
 
     root.querySelectorAll(".tab").forEach((b) =>
-      b.addEventListener("click", () => { this._selected = b.dataset.car; this._render(); }));
+      b.addEventListener("click", () => {
+        this._selected = b.dataset.car;
+        this._render();
+      })
+    );
     root.querySelectorAll(".chip").forEach((b) =>
       b.addEventListener("click", () => {
-        const trip = this._car.trips.find((t) => t.id === b.dataset.trip);
-        this._toggleDriver(trip, b.dataset.driver);
-      }));
+        const trip = (this._car.trips || []).find((t) => t.id === b.dataset.trip);
+        if (trip) this._toggleDriver(trip, b.dataset.driver);
+      })
+    );
     root.querySelectorAll(".del").forEach((b) =>
       b.addEventListener("click", () => {
-        const trip = this._car.trips.find((t) => t.id === b.dataset.del);
-        this._deleteTrip(trip);
-      }));
+        const trip = (this._car.trips || []).find((t) => t.id === b.dataset.del);
+        if (trip) this._deleteTrip(trip);
+      })
+    );
   }
 
   _style() {
