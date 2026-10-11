@@ -44,19 +44,22 @@
   "entity": {
     "sensor": {
       "total_km": {
-        "name": "Gesamtstrecke"
+        "name": "Gesamt Kilometer"
       },
       "unassigned_km": {
-        "name": "Nicht zugeordnete Strecke"
+        "name": "Nicht zugeordnete Kilometer"
       },
       "open_trip_km": {
-        "name": "Aktuelle Fahrt"
+        "name": "Aktive Fahrt"
       },
       "avg_consumption": {
-        "name": "Durchschnittsverbrauch"
+        "name": "Durchschnittlicher Energieverbrauch"
       },
       "driver_km": {
-        "name": "Strecke von {driver}"
+        "name": "{driver} Kilometer"
+      },
+      "driver_energy": {
+        "name": "{driver} Energie"
       }
     }
   }
