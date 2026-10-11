@@ -1,28 +1,20 @@
 class CarUsageTrackerPanel extends HTMLElement {
   constructor() {
     super();
-    this._hass = null;
-    this._data = null;
-    this._unsub = null;
-    this._subscribing = false;
-    this._filter = "all"; // all | unassigned
     this.attachShadow({ mode: "open" });
+    this._cars = [];
+    this._selected = null;
+    this._unsub = null;
+    this._loaded = false;
   }
 
   set hass(hass) {
     const first = !this._hass;
     this._hass = hass;
     if (first) {
-      this._render();
+      this._load();
       this._subscribe();
     }
-  }
-
-  set narrow(v) { this._narrow = v; }
-  set panel(v) { this._panel = v; }
-
-  connectedCallback() {
-    if (this._hass && !this._unsub) this._subscribe();
   }
 
   disconnectedCallback() {
@@ -33,171 +25,204 @@ class CarUsageTrackerPanel extends HTMLElement {
   }
 
   async _subscribe() {
-    if (this._unsub || this._subscribing || !this._hass) return;
-    this._subscribing = true;
     try {
       this._unsub = await this._hass.connection.subscribeMessage(
-        (data) => {
-          this._data = data;
-          this._render();
-        },
+        () => this._load(),
         { type: "car_usage_tracker/subscribe" }
       );
     } catch (e) {
-      this._error = e.message || String(e);
-      this._render();
-    } finally {
-      this._subscribing = false;
+      console.warn("Car Usage Tracker: live updates unavailable", e);
     }
   }
 
-  async _toggleDriver(trip, driver, checked) {
-    let drivers = new Set(trip.drivers);
-    checked ? drivers.add(driver) : drivers.delete(driver);
+  async _load() {
     try {
-      await this._hass.callWS({
-        type: "car_usage_tracker/assign",
-        trip_id: trip.id,
-        drivers: [...drivers],
-      });
+      const res = await this._hass.callWS({ type: "car_usage_tracker/get_data" });
+      this._cars = res.cars;
+      if (!this._cars.find((c) => c.entry_id === this._selected)) {
+        this._selected = this._cars.length ? this._cars[0].entry_id : null;
+      }
+      this._loaded = true;
+      this._render();
     } catch (e) {
-      alert("Could not save: " + (e.message || e));
+      console.error("Car Usage Tracker: load failed", e);
     }
+  }
+
+  get _car() {
+    return this._cars.find((c) => c.entry_id === this._selected);
+  }
+
+  async _toggleDriver(trip, driver) {
+    const set = new Set(trip.drivers);
+    set.has(driver) ? set.delete(driver) : set.add(driver);
+    await this._hass.callWS({
+      type: "car_usage_tracker/assign_drivers",
+      entry_id: this._selected,
+      trip_id: trip.id,
+      drivers: [...set],
+    });
   }
 
   async _deleteTrip(trip) {
-    if (!confirm(`Delete trip of ${trip.distance.toFixed(1)} km?`)) return;
-    try {
-      await this._hass.callWS({
-        type: "car_usage_tracker/delete",
-        trip_id: trip.id,
-      });
-    } catch (e) {
-      alert("Could not delete: " + (e.message || e));
-    }
+    if (!confirm("Delete this trip?")) return;
+    await this._hass.callWS({
+      type: "car_usage_tracker/delete_trip",
+      entry_id: this._selected,
+      trip_id: trip.id,
+    });
   }
 
   _fmtDate(iso) {
-    const d = new Date(iso);
-    return d.toLocaleString(undefined, {
-      day: "2-digit", month: "2-digit", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
+    if (!iso) return "–";
+    return new Date(iso).toLocaleString(this._hass?.locale?.language, {
+      dateStyle: "short",
+      timeStyle: "short",
     });
+  }
+
+  _esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      "&": "&", "<": "<", ">": ">", '"': """, "'": "'",
+    }[c]));
+  }
+
+  _consumptionCell(car, t) {
+    if (!car.has_battery) return "";
+    if (t.consumption != null) {
+      return `<td>${t.energy_kwh} kWh<br><small>${t.consumption} kWh/100 km</small></td>`;
+    }
+    if (t.low_resolution) return `<td><small>< 1 % battery</small></td>`;
+    return `<td>–</td>`;
   }
 
   _render() {
     const root = this.shadowRoot;
-    const d = this._data;
+    if (!this._loaded) return;
 
-    const style = `
-      <style>
-        :host { display: block; background: var(--primary-background-color); min-height: 100vh; }
-        .wrap { max-width: 1000px; margin: 0 auto; padding: 16px; font-family: var(--paper-font-body1_-_font-family, Roboto, sans-serif); color: var(--primary-text-color); }
-        h1 { font-weight: 400; margin: 8px 0 16px; }
-        .totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 24px; }
-        .card { background: var(--card-background-color); border-radius: 12px; padding: 14px 16px; box-shadow: var(--ha-card-box-shadow, 0 1px 3px rgba(0,0,0,.2)); }
-        .card .name { color: var(--secondary-text-color); font-size: 0.9em; }
-        .card .value { font-size: 1.6em; margin-top: 4px; }
-        .card.warn .value { color: var(--warning-color, orange); }
-        .toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
-        button.chip { border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); border-radius: 16px; padding: 6px 14px; cursor: pointer; }
-        button.chip.active { background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: var(--primary-color); }
-        table { width: 100%; border-collapse: collapse; background: var(--card-background-color); border-radius: 12px; overflow: hidden; }
-        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--divider-color); }
-        th { color: var(--secondary-text-color); font-weight: 500; font-size: 0.85em; }
-        td.num { text-align: right; white-space: nowrap; }
-        label.drv { display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; cursor: pointer; white-space: nowrap; }
-        button.del { background: none; border: none; cursor: pointer; color: var(--secondary-text-color); font-size: 1.1em; }
-        .badge { display: inline-block; background: var(--warning-color, orange); color: #fff; border-radius: 8px; padding: 1px 8px; font-size: 0.8em; margin-left: 6px; }
-        .empty, .err { padding: 24px; text-align: center; color: var(--secondary-text-color); }
-        .err { color: var(--error-color, red); }
-        .open { margin-bottom: 16px; padding: 10px 14px; border-radius: 12px; background: var(--card-background-color); border-left: 4px solid var(--primary-color); }
-      </style>`;
-
-    if (this._error) {
-      root.innerHTML = `${style}<div class="wrap"><div class="err">${this._error}</div></div>`;
-      return;
-    }
-    if (!d) {
-      root.innerHTML = `${style}<div class="wrap"><div class="empty">Loading…</div></div>`;
+    if (!this._cars.length) {
+      root.innerHTML = `${this._style()}<div class="wrap"><h1>Car Usage</h1>
+        <p>No cars configured. Add one under Settings → Devices & services → Car Usage Tracker.</p></div>`;
       return;
     }
 
-    const totalsHtml = d.drivers.map((name) => `
-      <div class="card">
-        <div class="name">${name}</div>
-        <div class="value">${(d.totals[name] ?? 0).toFixed(1)} km</div>
-      </div>`).join("");
+    const car = this._car;
+    const tabs = this._cars
+      .map((c) => `<button class="tab ${c.entry_id === this._selected ? "active" : ""}"
+        data-car="${c.entry_id}">${this._esc(c.name)}</button>`)
+      .join("");
 
-    const unassignedHtml = `
-      <div class="card warn">
-        <div class="name">Unassigned</div>
-        <div class="value">${d.unassigned.toFixed(1)} km</div>
-      </div>`;
+    const totals = car.totals;
+    const driverCards = car.drivers
+      .map((d) => {
+        const v = totals.drivers[d] || { km: 0, kwh: 0, consumption: null };
+        return `<div class="card">
+          <div class="label">${this._esc(d)}</div>
+          <div class="big">${v.km} km</div>
+          ${car.has_battery ? `<div class="sub">${v.kwh} kWh${
+            v.consumption != null ? ` · ${v.consumption} kWh/100 km` : ""}</div>` : ""}
+        </div>`;
+      })
+      .join("");
 
-    const trips = d.trips.filter(
-      (t) => this._filter === "all" || t.drivers.length === 0
-    );
-
-    let openHtml = "";
-    if (d.open_trip) {
-      const km = d.open_trip.end_odometer - d.open_trip.start_odometer;
-      openHtml = `<div class="open">Trip in progress: ${km.toFixed(1)} km so far (started ${this._fmtDate(d.open_trip.start)})</div>`;
-    }
-
-    const rows = trips.map((t) => {
-      const boxes = d.drivers.map((name) => `
-        <label class="drv">
-          <input type="checkbox" data-trip="${t.id}" data-driver="${name}"
-            ${t.drivers.includes(name) ? "checked" : ""}>
-          ${name}
-        </label>`).join("");
-      const share = t.drivers.length > 1
-        ? `<span class="badge">${(t.distance / t.drivers.length).toFixed(1)} km each</span>` : "";
-      return `
-        <tr>
+    const rows = car.trips
+      .map((t) => {
+        const chips = car.drivers
+          .map((d) => `<button class="chip ${t.drivers.includes(d) ? "on" : ""}"
+            data-trip="${t.id}" data-driver="${this._esc(d)}">${this._esc(d)}</button>`)
+          .join("");
+        return `<tr class="${t.drivers.length ? "" : "unassigned"}">
           <td>${this._fmtDate(t.start)}</td>
-          <td class="num">${t.distance.toFixed(1)} km${share}</td>
-          <td>${boxes}</td>
-          <td><button class="del" data-del="${t.id}" title="Delete trip">🗑</button></td>
+          <td>${t.distance} km</td>
+          ${this._consumptionCell(car, t)}
+          <td class="chips">${chips}</td>
+          <td><button class="del" data-del="${t.id}" title="Delete">✕</button></td>
         </tr>`;
-    }).join("");
+      })
+      .join("");
 
-    root.innerHTML = `
-      ${style}
+    const open = car.open_trip && car.open_trip.end_km != null
+      ? `<div class="open">Trip in progress: ${
+          (car.open_trip.end_km - car.open_trip.start_km).toFixed(1)} km</div>`
+      : "";
+
+    root.innerHTML = `${this._style()}
       <div class="wrap">
         <h1>Car Usage</h1>
-        <div class="totals">${totalsHtml}${unassignedHtml}</div>
-        ${openHtml}
-        <div class="toolbar">
-          <button class="chip ${this._filter === "all" ? "active" : ""}" data-filter="all">All trips</button>
-          <button class="chip ${this._filter === "unassigned" ? "active" : ""}" data-filter="unassigned">Unassigned only</button>
+        <div class="tabs">${tabs}</div>
+        ${open}
+        <div class="cards">
+          <div class="card total">
+            <div class="label">Total</div>
+            <div class="big">${totals.total_km} km</div>
+            ${car.has_battery ? `<div class="sub">${totals.total_kwh} kWh${
+              totals.consumption != null ? ` · ${totals.consumption} kWh/100 km` : ""}</div>` : ""}
+          </div>
+          ${driverCards}
+          <div class="card ${totals.unassigned_km > 0 ? "warn" : ""}">
+            <div class="label">Unassigned</div>
+            <div class="big">${totals.unassigned_km} km</div>
+          </div>
         </div>
-        ${trips.length ? `
+        <h2>Trips</h2>
         <table>
-          <thead><tr><th>Start</th><th style="text-align:right">Distance</th><th>Drivers</th><th></th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>` : `<div class="empty">No trips yet.</div>`}
+          <thead><tr>
+            <th>Start</th><th>Distance</th>
+            ${car.has_battery ? "<th>Energy (estimate)</th>" : ""}
+            <th>Drivers</th><th></th>
+          </tr></thead>
+          <tbody>${rows || `<tr><td colspan="5">No trips recorded yet.</td></tr>`}</tbody>
+        </table>
       </div>`;
 
-    root.querySelectorAll("input[type=checkbox]").forEach((cb) => {
-      cb.addEventListener("change", () => {
-        const trip = this._data.trips.find((t) => t.id === cb.dataset.trip);
-        if (trip) this._toggleDriver(trip, cb.dataset.driver, cb.checked);
-      });
-    });
-    root.querySelectorAll("button[data-del]").forEach((b) => {
+    root.querySelectorAll(".tab").forEach((b) =>
+      b.addEventListener("click", () => { this._selected = b.dataset.car; this._render(); }));
+    root.querySelectorAll(".chip").forEach((b) =>
       b.addEventListener("click", () => {
-        const trip = this._data.trips.find((t) => t.id === b.dataset.del);
-        if (trip) this._deleteTrip(trip);
-      });
-    });
-    root.querySelectorAll("button[data-filter]").forEach((b) => {
+        const trip = this._car.trips.find((t) => t.id === b.dataset.trip);
+        this._toggleDriver(trip, b.dataset.driver);
+      }));
+    root.querySelectorAll(".del").forEach((b) =>
       b.addEventListener("click", () => {
-        this._filter = b.dataset.filter;
-        this._render();
-      });
-    });
+        const trip = this._car.trips.find((t) => t.id === b.dataset.del);
+        this._deleteTrip(trip);
+      }));
+  }
+
+  _style() {
+    return `<style>
+      :host { display:block; background:var(--primary-background-color); color:var(--primary-text-color);
+              font-family:var(--paper-font-body1_-_font-family, sans-serif); }
+      .wrap { max-width:1000px; margin:0 auto; padding:16px; }
+      h1 { margin:0 0 12px; font-weight:400; }
+      h2 { margin:24px 0 8px; font-weight:400; }
+      .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+      .tab { border:1px solid var(--divider-color); background:var(--card-background-color);
+             color:inherit; padding:8px 16px; border-radius:18px; cursor:pointer; font-size:14px; }
+      .tab.active { background:var(--primary-color); color:var(--text-primary-color,#fff); border-color:var(--primary-color); }
+      .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; }
+      .card { background:var(--card-background-color); border-radius:12px; padding:12px 16px;
+              box-shadow:var(--ha-card-box-shadow,0 1px 3px rgba(0,0,0,.2)); }
+      .card.total { border-left:4px solid var(--primary-color); }
+      .card.warn { border-left:4px solid var(--warning-color,#ffa600); }
+      .label { color:var(--secondary-text-color); font-size:13px; }
+      .big { font-size:24px; margin-top:4px; }
+      .sub { color:var(--secondary-text-color); font-size:12px; margin-top:2px; }
+      .open { background:var(--card-background-color); border-left:4px solid var(--info-color,#039be5);
+              padding:8px 12px; border-radius:8px; margin-bottom:12px; }
+      table { width:100%; border-collapse:collapse; background:var(--card-background-color);
+              border-radius:12px; overflow:hidden; }
+      th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--divider-color); font-size:14px; vertical-align:middle; }
+      th { color:var(--secondary-text-color); font-weight:500; }
+      tr.unassigned td:first-child { border-left:4px solid var(--warning-color,#ffa600); }
+      small { color:var(--secondary-text-color); }
+      .chips { display:flex; gap:6px; flex-wrap:wrap; }
+      .chip { border:1px solid var(--divider-color); background:transparent; color:inherit;
+              padding:4px 10px; border-radius:14px; cursor:pointer; font-size:13px; }
+      .chip.on { background:var(--primary-color); color:var(--text-primary-color,#fff); border-color:var(--primary-color); }
+      .del { background:none; border:none; color:var(--secondary-text-color); cursor:pointer; font-size:16px; }
+      .del:hover { color:var(--error-color,#db4437); }
+    </style>`;
   }
 }
 

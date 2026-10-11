@@ -2,29 +2,43 @@
   "config": {
     "step": {
       "user": {
-        "title": "Car Usage Tracker",
-        "description": "Select the odometer sensor and configure trip detection.",
+        "title": "Add a car",
+        "description": "Create one entry per car. The battery sensor and capacity are optional and only needed for consumption estimates.",
         "data": {
-          "odometer_entity": "Odometer entity",
-          "idle_minutes": "Minutes without odometer change that end a trip",
+          "name": "Car name",
+          "odometer_entity": "Odometer sensor",
+          "battery_entity": "Battery level sensor (optional)",
+          "battery_capacity": "Usable battery capacity (kWh)",
+          "idle_minutes": "Minutes without odometer change before a trip ends",
           "drivers": "Drivers"
         }
       }
     },
+    "error": {
+      "no_drivers": "Add at least one driver.",
+      "capacity_required": "Enter the battery capacity when a battery sensor is selected."
+    },
     "abort": {
-      "single_instance_allowed": "Only one instance is supported."
+      "already_configured": "A car with this odometer sensor is already configured."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Car Usage Tracker",
+        "title": "Car settings",
         "data": {
-          "odometer_entity": "Odometer entity",
-          "idle_minutes": "Minutes without odometer change that end a trip",
+          "name": "Car name",
+          "odometer_entity": "Odometer sensor",
+          "battery_entity": "Battery level sensor (optional)",
+          "battery_capacity": "Usable battery capacity (kWh)",
+          "idle_minutes": "Minutes without odometer change before a trip ends",
           "drivers": "Drivers"
         }
       }
+    },
+    "error": {
+      "no_drivers": "Add at least one driver.",
+      "capacity_required": "Enter the battery capacity when a battery sensor is selected."
     }
   }
 }
