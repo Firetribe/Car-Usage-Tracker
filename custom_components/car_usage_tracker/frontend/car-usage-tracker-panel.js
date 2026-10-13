@@ -1,4 +1,5 @@
 const VERSION = "0.3.4";
+console.info(`%c CAR-USAGE-TRACKER-PANEL %c v${VERSION} `, "background:#039be5;color:#fff", "");
 const STRINGS = {
   en: {
     title: "Car Usage", noCars: "No cars configured. Add one under Settings \u2192 Devices & services \u2192 Car Usage Tracker.",
