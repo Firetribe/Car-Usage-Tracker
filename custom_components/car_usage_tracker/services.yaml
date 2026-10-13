@@ -1,0 +1,24 @@
+assign_drivers:
+  name: Assign drivers to trip
+  description: Replace the driver assignments for a recorded trip.
+  fields:
+    entry_id:
+      name: Car
+      description: Config entry ID of the car tracking this trip.
+      required: true
+      selector:
+        config_entry:
+          integration: car_usage_tracker
+    trip_id:
+      name: Trip ID
+      description: ID of the recorded trip to update.
+      required: true
+      selector:
+        text:
+    drivers:
+      name: Drivers
+      description: Driver names separated by commas or new lines. Leave empty to clear assignments.
+      required: true
+      selector:
+        text:
+          multiline: true
