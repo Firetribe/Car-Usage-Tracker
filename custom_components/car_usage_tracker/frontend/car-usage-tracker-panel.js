@@ -1,4 +1,4 @@
-const VERSION = "0.3.6";
+const VERSION = "1.0.0";
 console.info(`%c CAR-USAGE-TRACKER-PANEL %c v${VERSION} `, "background:#039be5;color:#fff", "");
 const STRINGS = {
   en: {

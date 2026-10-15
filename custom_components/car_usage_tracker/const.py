@@ -1,7 +1,7 @@
 """Constants for Car Usage Tracker."""
 
 DOMAIN = "car_usage_tracker"
-VERSION = "0.3.6"
+VERSION = "1.0.0"
 
 CONF_NAME = "name"
 CONF_ODOMETER = "odometer_entity"
