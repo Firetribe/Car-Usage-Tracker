@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 
+from . import services as cut_services
 from . import websocket_api as cut_ws
 from .const import (
     CONF_LEGACY_STORAGE,
@@ -30,7 +31,6 @@ from .const import (
     VERSION,
 )
 from .coordinator import CarTracker
-from .services import async_register as async_register_services
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.SENSOR]
@@ -63,7 +63,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     dd["cars"][entry.entry_id] = tracker
 
     if not hass.services.has_service(DOMAIN, "assign_drivers"):
-        async_register_services(hass)
+        cut_services.async_register(hass)
 
     if not dd["ws"]:
         cut_ws.async_register(hass)
@@ -105,11 +105,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         tracker: CarTracker | None = dd["cars"].pop(entry.entry_id, None)
         if tracker:
             await tracker.async_unload()
-        if not dd["cars"] and hass.services.has_service(DOMAIN, "assign_drivers"):
-            hass.services.async_remove(DOMAIN, "assign_drivers")
         if not dd["cars"] and dd["panel"]:
             frontend.async_remove_panel(hass, PANEL_URL)
             dd["panel"] = False
+        if not dd["cars"] and hass.services.has_service(DOMAIN, "assign_drivers"):
+            hass.services.async_remove(DOMAIN, "assign_drivers")
+            hass.services.async_remove(DOMAIN, "end_trip")
+            hass.services.async_remove(DOMAIN, "merge_trips")
         async_dispatcher_send(hass, SIGNAL_ANY, entry.entry_id)
     return ok
 

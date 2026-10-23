@@ -22,3 +22,35 @@ assign_drivers:
       selector:
         text:
           multiline: true
+
+end_trip:
+  name: End running trip
+  description: Finalize the currently active trip immediately using the current odometer / battery values.
+  fields:
+    entry_id:
+      name: Car
+      description: Config entry ID of the car whose running trip should be ended.
+      required: true
+      selector:
+        config_entry:
+          integration: car_usage_tracker
+
+merge_trips:
+  name: Merge trips
+  description: Merge two or more recorded trips of the same car into a single trip. Drivers are unioned (case-insensitive), distance is summed, and the merged trip keeps the earliest start and latest end.
+  fields:
+    entry_id:
+      name: Car
+      description: Config entry ID of the car whose trips should be merged.
+      required: true
+      selector:
+        config_entry:
+          integration: car_usage_tracker
+    trip_ids:
+      name: Trip IDs
+      description: List of trip IDs to merge. Must contain at least two IDs and all belong to the same car.
+      required: true
+      example: ["abc123", "def456"]
+      selector:
+        text:
+          multiple: true
