@@ -1,11 +1,7 @@
 """Constants for Car Usage Tracker."""
 
 DOMAIN = "car_usage_tracker"
-<<<<<<< Updated upstream
-VERSION = "1.0.0"
-=======
 VERSION = "0.4.1"
->>>>>>> Stashed changes
 
 CONF_NAME = "name"
 CONF_ODOMETER = "odometer_entity"
@@ -14,6 +10,7 @@ CONF_CAPACITY = "battery_capacity"
 CONF_IDLE_MINUTES = "idle_minutes"
 CONF_DRIVERS = "drivers"
 CONF_LEGACY_STORAGE = "legacy_storage"
+CONF_TRIP_IDS = "trip_ids"
 
 DEFAULT_IDLE_MINUTES = 10
 FALLBACK_NAME = "Car"
