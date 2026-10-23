@@ -30,6 +30,7 @@ from .const import (
     VERSION,
 )
 from .coordinator import CarTracker
+from .services import async_register as async_register_services
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.SENSOR]
@@ -60,6 +61,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     tracker = CarTracker(hass, entry)
     await tracker.async_setup()
     dd["cars"][entry.entry_id] = tracker
+
+    if not hass.services.has_service(DOMAIN, "assign_drivers"):
+        async_register_services(hass)
 
     if not dd["ws"]:
         cut_ws.async_register(hass)
@@ -101,6 +105,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         tracker: CarTracker | None = dd["cars"].pop(entry.entry_id, None)
         if tracker:
             await tracker.async_unload()
+        if not dd["cars"] and hass.services.has_service(DOMAIN, "assign_drivers"):
+            hass.services.async_remove(DOMAIN, "assign_drivers")
         if not dd["cars"] and dd["panel"]:
             frontend.async_remove_panel(hass, PANEL_URL)
             dd["panel"] = False
