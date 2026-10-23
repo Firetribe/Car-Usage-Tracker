@@ -40,27 +40,5 @@
       "no_drivers": "Add at least one driver.",
       "capacity_required": "Enter the battery capacity when a battery sensor is selected."
     }
-  },
-  "entity": {
-    "sensor": {
-      "total_km": {
-        "name": "Total Kilometer"
-      },
-      "unassigned_km": {
-        "name": "Unassigned Kilometer"
-      },
-      "open_trip_km": {
-        "name": "Active trip"
-      },
-      "avg_consumption": {
-        "name": "Average energy consumption"
-      },
-      "driver_km": {
-        "name": "{driver} Kilometer"
-      },
-      "driver_energy": {
-        "name": "{driver} Energy"
-      }
-    }
   }
 }
