@@ -20,6 +20,11 @@ from .const import (
     CONF_NAME,
     CONF_ODOMETER,
     DEFAULT_IDLE_MINUTES,
+<<<<<<< Updated upstream
+=======
+    DOMAIN,
+    EXTRA_LEGACY_KEYS,
+>>>>>>> Stashed changes
     FALLBACK_NAME,
     LEGACY_STORAGE_KEY,
     SIGNAL_ANY,
@@ -46,15 +51,36 @@ def _state_float(state: State | None) -> float | None:
 
 
 def _normalize_trip(t: dict) -> dict:
+<<<<<<< Updated upstream
     """Make trips from any earlier version consistent."""
+=======
+    """Make trips from any earlier version consistent.
+
+    Critical (0.4.1): never drop a trip just because a new field is missing.
+    Older builds wrote ``start_odometer``/``end_odometer`` instead of
+    ``start_km``/``end_km`` and trips without drivers were valid. We default
+    missing fields so the trip is preserved.
+    """
+    if not isinstance(t, dict):
+        return None  # type: ignore[return-value]
+
+>>>>>>> Stashed changes
     start_km = _to_float(t.get("start_km", t.get("start_odometer")))
     end_km = _to_float(t.get("end_km", t.get("end_odometer")))
     distance = _to_float(t.get("distance", t.get("km")))
     if distance is None and start_km is not None and end_km is not None:
         distance = end_km - start_km
-    drivers = t.get("drivers") or []
+
+    drivers = t.get("drivers")
+    if drivers is None:
+        # Older builds used a single "driver" string. Treat it as a list of one.
+        single = t.get("driver")
+        drivers = [single] if single else []
     if isinstance(drivers, str):
         drivers = [drivers]
+    if not isinstance(drivers, list):
+        drivers = []
+
     trip = {
         "id": str(t.get("id") or uuid.uuid4().hex),
         "start": t.get("start") or t.get("start_time"),
@@ -94,6 +120,11 @@ class CarTracker:
         self.last_soc: float | None = None
         self._unsubs: list = []
         self._idle_unsub = None
+<<<<<<< Updated upstream
+=======
+        self._save_now_needed = False
+        self._recovered_legacy = False
+>>>>>>> Stashed changes
 
     # ---------- configuration ----------
 
@@ -128,20 +159,78 @@ class CarTracker:
 
     # ---------- lifecycle ----------
 
+    async def _try_load(self, key: str) -> dict | None:
+        try:
+            data = await Store(self.hass, STORAGE_VERSION, key).async_load()
+        except Exception as err:  # pragma: no cover - defensive
+            _LOGGER.debug("Car tracker: load %s failed: %s", key, err)
+            return None
+        return data
+
     async def async_setup(self) -> None:
+        # 0.4.1: Tolerant loading. We try the per-car key first, then several
+        # legacy keys. We never throw trips away because of a key rename or
+        # because a trip record is missing a newer field; _normalize_trip
+        # defaults missing fields.
         data = await self._store.async_load()
+<<<<<<< Updated upstream
         if data is None and self.entry.data.get(CONF_LEGACY_STORAGE):
             legacy = Store(self.hass, STORAGE_VERSION, LEGACY_STORAGE_KEY)
             data = await legacy.async_load()
             if data:
                 _LOGGER.info("Importing trips from v0.1 storage into %s", self.name)
+=======
+
+        if not data and self.cfg.get(CONF_LEGACY_STORAGE):
+            legacy = Store(self.hass, STORAGE_VERSION, LEGACY_STORAGE_KEY)
+            data = await legacy.async_load()
+            if data:
+                data["_migrated_from_legacy"] = True
+                self._recovered_legacy = True
+                _LOGGER.info(
+                    "Imported trips from legacy %s storage into %s",
+                    LEGACY_STORAGE_KEY, self.name,
+                )
+
+        if not data:
+            for key in EXTRA_LEGACY_KEYS:
+                candidate = await self._try_load(key)
+                if candidate and isinstance(candidate, dict) and (
+                    candidate.get("trips") or candidate.get("open_trip")
+                ):
+                    data = candidate
+                    data["_migrated_from_legacy"] = True
+                    self._recovered_legacy = True
+                    _LOGGER.info(
+                        "Recovered trips from legacy key %s for %s", key, self.name,
+                    )
+                    break
+
+>>>>>>> Stashed changes
         data = data or {}
 
-        self.trips = [_normalize_trip(t) for t in data.get("trips", [])]
-        self.open_trip = data.get("open_trip")
+        # Always coerce; never filter. Even if a trip has no "drivers" key,
+        # _normalize_trip gives it an empty list.
+        raw_trips = data.get("trips") or []
+        if isinstance(raw_trips, list):
+            normalized = [_normalize_trip(t) for t in raw_trips]
+            self.trips = [t for t in normalized if isinstance(t, dict)]
+        else:
+            self.trips = []
+        self.open_trip = data.get("open_trip") if isinstance(data.get("open_trip"), dict) else None
         self.last_odo = _to_float(data.get("last_odo"))
         self.last_soc = _to_float(data.get("last_soc"))
+<<<<<<< Updated upstream
         self._save_now_needed = bool(data) and not await self._store.async_load()
+=======
+
+        # If we recovered from a legacy location, persist immediately under
+        # the per-car key so future loads don't need to fall back again.
+        if self._recovered_legacy:
+            self._save_now_needed = True
+
+        from homeassistant.helpers.event import async_track_state_change_event
+>>>>>>> Stashed changes
 
         entities = [e for e in (self.odometer_entity, self.battery_entity) if e]
         if entities:
@@ -179,7 +268,8 @@ class CarTracker:
     @callback
     def _on_state_change(self, event: Event) -> None:
         entity_id = event.data.get("entity_id")
-        value = _state_float(event.data.get("new_state"))
+        new_state = event.data.get("new_state")
+        value = _state_float(new_state)
         if value is None:
             return
         if entity_id == self.odometer_entity:
@@ -245,8 +335,14 @@ class CarTracker:
         soc_end = trip.get("soc_min")
         # Base for the next trip: current SoC if known, else the trip's end SoC
         if self.battery_entity:
+<<<<<<< Updated upstream
             cur = _state_float(self.hass.states.get(self.battery_entity))
             self.last_soc = cur if cur is not None else soc_end
+=======
+            soc_state = _state_float(self.hass.states.get(self.battery_entity))
+            if soc_state is not None and (soc_end is None or soc_state < soc_end):
+                soc_end = soc_state
+>>>>>>> Stashed changes
 
         if distance >= MIN_TRIP_KM:
             trip["distance"] = round(distance, 1)
@@ -261,7 +357,7 @@ class CarTracker:
     # ---------- user actions ----------
 
     def get_trip(self, trip_id: str) -> dict | None:
-        return next((t for t in self.trips if t["id"] == trip_id), None)
+        return next((t for t in self.trips if t.get("id") == trip_id), None)
 
     @callback
     def assign_drivers(self, trip_id: str, drivers: list[str]) -> bool:
@@ -276,13 +372,94 @@ class CarTracker:
     @callback
     def delete_trip(self, trip_id: str) -> bool:
         before = len(self.trips)
-        self.trips = [t for t in self.trips if t["id"] != trip_id]
+        self.trips = [t for t in self.trips if t.get("id") != trip_id]
         if len(self.trips) == before:
             return False
         self._save()
         self._notify()
         return True
 
+<<<<<<< Updated upstream
+=======
+    @callback
+    def end_open_trip(self) -> dict | None:
+        trip = self.open_trip
+        if not trip:
+            return None
+        if self._idle_unsub:
+            self._idle_unsub()
+            self._idle_unsub = None
+        now = dt_util.utcnow().isoformat()
+        end_km = self.last_odo if self.last_odo is not None else trip.get("start_km")
+        soc_end = trip.get("soc_min")
+        if self.battery_entity:
+            soc_state = _state_float(self.hass.states.get(self.battery_entity))
+            if soc_state is not None and (soc_end is None or soc_state < soc_end):
+                soc_end = soc_state
+        trip["end"] = now
+        trip["end_km"] = end_km
+        distance = (end_km or 0) - (trip.get("start_km") or 0)
+        self.open_trip = None
+        if distance < MIN_TRIP_KM:
+            self._notify()
+            return None
+        trip["distance"] = round(distance, 1)
+        trip["soc_end"] = soc_end
+        trip.setdefault("drivers", [])
+        trip.pop("soc_min", None)
+        normalized = _normalize_trip(trip)
+        self.trips.append(normalized)
+        self._save()
+        self._notify()
+        return normalized
+
+    @callback
+    def merge_trips(self, trip_ids: list[str]) -> dict | None:
+        if not trip_ids or len(trip_ids) < 2:
+            return None
+        selected: list[dict] = []
+        for tid in trip_ids:
+            trip = self.get_trip(tid)
+            if trip is None:
+                return None
+            selected.append(trip)
+        selected.sort(key=lambda t: t.get("start") or "")
+        earliest = selected[0]
+        latest = selected[-1]
+        start_km = earliest.get("start_km")
+        end_km = latest.get("end_km")
+        if start_km is None or end_km is None:
+            return None
+        total_distance = sum((t.get("distance") or 0) for t in selected)
+        soc_start = next(
+            (t.get("soc_start") for t in selected if t.get("soc_start") is not None),
+            None,
+        )
+        soc_end = next(
+            (t.get("soc_end") for t in reversed(selected) if t.get("soc_end") is not None),
+            None,
+        )
+        merged_drivers = _merge_drivers([t.get("drivers") or [] for t in selected])
+        merged = {
+            "id": uuid.uuid4().hex,
+            "start": earliest.get("start"),
+            "end": latest.get("end"),
+            "start_km": start_km,
+            "end_km": end_km,
+            "distance": round(total_distance, 1),
+            "drivers": merged_drivers,
+            "soc_start": soc_start,
+            "soc_end": soc_end,
+        }
+        ids = set(trip_ids)
+        self.trips = [t for t in self.trips if t["id"] not in ids]
+        self.trips.append(_normalize_trip(merged))
+        self.trips.sort(key=lambda t: t.get("start") or "")
+        self._save()
+        self._notify()
+        return merged
+
+>>>>>>> Stashed changes
     # ---------- calculations ----------
 
     def trip_view(self, trip: dict) -> dict:
@@ -298,7 +475,11 @@ class CarTracker:
         }
 
     def totals(self) -> dict:
+<<<<<<< Updated upstream
         drivers = {d: {"km": 0.0, "kwh": 0.0, "kwh_km": 0.0, "trips": 0.0} for d in self.drivers}
+=======
+        drivers: dict[str, dict] = {d: {"km": 0.0, "kwh": 0.0, "trips": 0.0} for d in self.drivers}
+>>>>>>> Stashed changes
         unassigned_km = 0.0
         total_km = total_kwh = kwh_km = 0.0
 
@@ -322,7 +503,11 @@ class CarTracker:
                     drivers[d]["kwh_km"] += dist * share
 
         def avg(kwh, km):
+<<<<<<< Updated upstream
             return round(kwh / km * 100, 1) if km > 0 and kwh > 0 else None
+=======
+            return round(kwh / km * 100, 2) if km > 0 and kwh > 0 else None
+>>>>>>> Stashed changes
 
         return {
             "drivers": {
@@ -330,7 +515,11 @@ class CarTracker:
                     "km": round(v["km"], 1),
                     "kwh": round(v["kwh"], 1),
                     "trips": round(v["trips"], 2),
+<<<<<<< Updated upstream
                     "consumption": avg(v["kwh"], v["kwh_km"]),
+=======
+                    "consumption": avg(v["kwh"], v["km"]),
+>>>>>>> Stashed changes
                 }
                 for d, v in drivers.items()
             },
@@ -341,7 +530,6 @@ class CarTracker:
         }
 
     def as_dict(self) -> dict:
-        """Everything the panel needs for this car."""
         return {
             "entry_id": self.entry.entry_id,
             "name": self.name,
@@ -370,4 +558,8 @@ class CarTracker:
     @callback
     def _notify(self) -> None:
         async_dispatcher_send(self.hass, f"{SIGNAL_UPDATED}_{self.entry.entry_id}")
+<<<<<<< Updated upstream
         async_dispatcher_send(self.hass, SIGNAL_ANY, self.entry.entry_id)
+=======
+        async_dispatcher_send(self.hass, SIGNAL_ANY, self.entry.entry_id)
+>>>>>>> Stashed changes

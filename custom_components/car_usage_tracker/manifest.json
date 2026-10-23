@@ -1,12 +1,19 @@
 {
   "domain": "car_usage_tracker",
   "name": "Car Usage Tracker",
+<<<<<<< Updated upstream
   "version": "1.0.0",
   "documentation": "https://github.com/Firetribe/Car-Usage-Tracker",
   "issue_tracker": "https://github.com/Firetribe/Car-Usage-Tracker/issues",
   "codeowners": [
     "@Firetribe"
   ],
+=======
+  "version": "0.4.1",
+  "documentation": "https://github.com/Firetribe/car_usage_tracker",
+  "issue_tracker": "https://github.com/Firetribe/car_usage_tracker/issues",
+  "codeowners": ["@Firetribe"],
+>>>>>>> Stashed changes
   "config_flow": true,
   "dependencies": [
     "http",
