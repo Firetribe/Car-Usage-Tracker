@@ -7,7 +7,6 @@ import uuid
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -20,6 +19,7 @@ from .const import (
     CONF_NAME,
     CONF_ODOMETER,
     DEFAULT_IDLE_MINUTES,
+    DOMAIN,
     FALLBACK_NAME,
     LEGACY_STORAGE_KEY,
     SIGNAL_ANY,
@@ -40,15 +40,14 @@ def _to_float(value) -> float | None:
 
 
 def _state_float(state: State | None) -> float | None:
-    if state is None or state.state in ("unknown", "unavailable", ""):
+    if state is None:
         return None
     return _to_float(state.state)
 
 
 def _normalize_trip(t: dict) -> dict:
-    """Make trips from any earlier version consistent."""
-    start_km = _to_float(t.get("start_km", t.get("start_odometer")))
-    end_km = _to_float(t.get("end_km", t.get("end_odometer")))
+    start_km = _to_float(t.get("start_km"))
+    end_km = _to_float(t.get("end_km"))
     distance = _to_float(t.get("distance", t.get("km")))
     if distance is None and start_km is not None and end_km is not None:
         distance = end_km - start_km
@@ -71,9 +70,12 @@ def _normalize_trip(t: dict) -> dict:
     return trip
 
 
-def estimate_energy(soc_start, soc_end, capacity) -> float | None:
-    """kWh used; 0.0 if drop < 1 %, None if unknown or charged during trip."""
-    if soc_start is None or soc_end is None or not capacity:
+def _trip_energy(trip: dict, capacity: float | None) -> float | None:
+    if capacity is None:
+        return None
+    soc_start = trip.get("soc_start")
+    soc_end = trip.get("soc_end")
+    if soc_start is None or soc_end is None:
         return None
     drop = soc_start - soc_end
     if drop < 0:
@@ -81,19 +83,34 @@ def estimate_energy(soc_start, soc_end, capacity) -> float | None:
     return round(drop / 100.0 * capacity, 2)
 
 
-class CarTracker:
-    """Tracks trips for a single car (one config entry)."""
+def _merge_drivers(groups: list[list[str]]) -> list[str]:
+    """Union of all driver groups preserving order of first appearance."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for group in groups:
+        for d in group or []:
+            key = d.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(d)
+    return out
 
+
+class CarTracker:
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
         self.entry = entry
-        self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY_PREFIX}{entry.entry_id}")
         self.trips: list[dict] = []
         self.open_trip: dict | None = None
         self.last_odo: float | None = None
         self.last_soc: float | None = None
+        self._store: Store = Store(
+            hass, STORAGE_VERSION, f"{STORAGE_KEY_PREFIX}{entry.entry_id}"
+        )
         self._unsubs: list = []
         self._idle_unsub = None
+        self._save_now_needed = False
 
     # ---------- configuration ----------
 
@@ -115,7 +132,8 @@ class CarTracker:
 
     @property
     def capacity(self) -> float | None:
-        return _to_float(self.cfg.get(CONF_CAPACITY)) or None
+        cap = self.cfg.get(CONF_CAPACITY)
+        return _to_float(cap)
 
     @property
     def idle_seconds(self) -> float:
@@ -130,18 +148,19 @@ class CarTracker:
 
     async def async_setup(self) -> None:
         data = await self._store.async_load()
-        if data is None and self.entry.data.get(CONF_LEGACY_STORAGE):
+        if not data and self.cfg.get(CONF_LEGACY_STORAGE):
             legacy = Store(self.hass, STORAGE_VERSION, LEGACY_STORAGE_KEY)
             data = await legacy.async_load()
             if data:
-                _LOGGER.info("Importing trips from v0.1 storage into %s", self.name)
+                data["_migrated_from_legacy"] = True
         data = data or {}
 
         self.trips = [_normalize_trip(t) for t in data.get("trips", [])]
         self.open_trip = data.get("open_trip")
         self.last_odo = _to_float(data.get("last_odo"))
         self.last_soc = _to_float(data.get("last_soc"))
-        self._save_now_needed = bool(data) and not await self._store.async_load()
+
+        from homeassistant.helpers.event import async_track_state_change_event
 
         entities = [e for e in (self.odometer_entity, self.battery_entity) if e]
         if entities:
@@ -149,7 +168,6 @@ class CarTracker:
                 async_track_state_change_event(self.hass, entities, self._on_state_change)
             )
 
-        # Pick up current values (also handles distance driven while HA was down)
         if self.battery_entity:
             soc = _state_float(self.hass.states.get(self.battery_entity))
             if soc is not None:
@@ -206,7 +224,7 @@ class CarTracker:
         if odo <= self.last_odo:
             if odo < self.last_odo - 1:
                 _LOGGER.warning(
-                    "%s: odometer went backwards (%s -> %s), ignoring",
+                    "Odometer for %s went backwards (%s -> %s); ignoring",
                     self.name, self.last_odo, odo,
                 )
             return
@@ -231,7 +249,12 @@ class CarTracker:
     def _schedule_close(self) -> None:
         if self._idle_unsub:
             self._idle_unsub()
-        self._idle_unsub = async_call_later(self.hass, self.idle_seconds, self._close_trip)
+            self._idle_unsub = None
+        from homeassistant.helpers.event import async_call_later
+
+        self._idle_unsub = async_call_later(
+            self.hass, self.idle_seconds, self._close_trip
+        )
 
     @callback
     def _close_trip(self, _now=None) -> None:
@@ -243,10 +266,11 @@ class CarTracker:
 
         distance = (trip.get("end_km") or 0) - (trip.get("start_km") or 0)
         soc_end = trip.get("soc_min")
-        # Base for the next trip: current SoC if known, else the trip's end SoC
         if self.battery_entity:
-            cur = _state_float(self.hass.states.get(self.battery_entity))
-            self.last_soc = cur if cur is not None else soc_end
+            soc_state = _state_float(self.hass.states.get(self.battery_entity))
+            if soc_state is not None:
+                if soc_end is None or soc_state < soc_end:
+                    soc_end = soc_state
 
         if distance >= MIN_TRIP_KM:
             trip["distance"] = round(distance, 1)
@@ -254,8 +278,7 @@ class CarTracker:
             trip.setdefault("drivers", [])
             trip.pop("soc_min", None)
             self.trips.append(_normalize_trip(trip))
-            _LOGGER.debug("%s: trip closed, %.1f km", self.name, distance)
-        self._save()
+            self._save()
         self._notify()
 
     # ---------- user actions ----------
@@ -268,7 +291,7 @@ class CarTracker:
         trip = self.get_trip(trip_id)
         if trip is None:
             return False
-        trip["drivers"] = [d for d in dict.fromkeys(drivers) if d in self.drivers]
+        trip["drivers"] = list(drivers)
         self._save()
         self._notify()
         return True
@@ -283,33 +306,132 @@ class CarTracker:
         self._notify()
         return True
 
+    @callback
+    def end_open_trip(self) -> dict | None:
+        """Finalize the current in-progress trip immediately using latest odometer/SoC.
+
+        Returns the created trip dict, or None if there was nothing to close or
+        the trip was too short.
+        """
+        trip = self.open_trip
+        if not trip:
+            return None
+        # Cancel pending idle close so it can't double-fire
+        if self._idle_unsub:
+            self._idle_unsub()
+            self._idle_unsub = None
+        now = dt_util.utcnow().isoformat()
+        end_km = self.last_odo if self.last_odo is not None else trip.get("start_km")
+        soc_end = trip.get("soc_min")
+        if self.battery_entity:
+            soc_state = _state_float(self.hass.states.get(self.battery_entity))
+            if soc_state is not None and (soc_end is None or soc_state < soc_end):
+                soc_end = soc_state
+        trip["end"] = now
+        trip["end_km"] = end_km
+        distance = (end_km or 0) - (trip.get("start_km") or 0)
+        self.open_trip = None
+        if distance < MIN_TRIP_KM:
+            self._notify()
+            return None
+        trip["distance"] = round(distance, 1)
+        trip["soc_end"] = soc_end
+        trip.setdefault("drivers", [])
+        trip.pop("soc_min", None)
+        normalized = _normalize_trip(trip)
+        self.trips.append(normalized)
+        self._save()
+        self._notify()
+        return normalized
+
+    @callback
+    def merge_trips(self, trip_ids: list[str]) -> dict | None:
+        """Merge 2+ trips of this car.
+
+        - Combined trip uses start of earliest trip, end of latest, summed distance.
+        - Recomputed SoC consumption estimates use earliest soc_start and latest
+          soc_end from selected trips.
+        - Driver list is the union of all selected trips (case-insensitive,
+          preserving order of first appearance).
+        - All merged trips are removed; a new trip with a fresh id is inserted.
+        """
+        if not trip_ids or len(trip_ids) < 2:
+            return None
+        selected: list[dict] = []
+        for tid in trip_ids:
+            trip = self.get_trip(tid)
+            if trip is None:
+                return None
+            selected.append(trip)
+        # sort by start time (None sorts last)
+        selected.sort(key=lambda t: t.get("start") or "")
+        earliest = selected[0]
+        latest = selected[-1]
+        start_km = earliest.get("start_km")
+        end_km = latest.get("end_km")
+        if start_km is None or end_km is None:
+            return None
+        total_distance = sum((t.get("distance") or 0) for t in selected)
+        # pick first non-None soc_start / last non-None soc_end
+        soc_start = next(
+            (t.get("soc_start") for t in selected if t.get("soc_start") is not None),
+            None,
+        )
+        soc_end = next(
+            (
+                t.get("soc_end")
+                for t in reversed(selected)
+                if t.get("soc_end") is not None
+            ),
+            None,
+        )
+        merged_drivers = _merge_drivers([t.get("drivers") or [] for t in selected])
+        merged = {
+            "id": uuid.uuid4().hex,
+            "start": earliest.get("start"),
+            "end": latest.get("end"),
+            "start_km": start_km,
+            "end_km": end_km,
+            "distance": round(total_distance, 1),
+            "drivers": merged_drivers,
+            "soc_start": soc_start,
+            "soc_end": soc_end,
+        }
+        ids = set(trip_ids)
+        self.trips = [t for t in self.trips if t["id"] not in ids]
+        self.trips.append(_normalize_trip(merged))
+        self.trips.sort(key=lambda t: t.get("start") or "")
+        self._save()
+        self._notify()
+        return merged
+
     # ---------- calculations ----------
 
     def trip_view(self, trip: dict) -> dict:
-        energy = estimate_energy(trip.get("soc_start"), trip.get("soc_end"), self.capacity)
+        energy = _trip_energy(trip, self.capacity)
         consumption = None
         if energy and trip["distance"] > 0:
-            consumption = round(energy / trip["distance"] * 100, 1)
+            consumption = round(energy / trip["distance"] * 100, 2)
         return {
             **trip,
             "energy_kwh": energy,
-            "consumption": consumption,  # kWh/100 km, None if < 1 % drop
+            "consumption": consumption,
             "low_resolution": energy == 0.0,
         }
 
     def totals(self) -> dict:
-        drivers = {d: {"km": 0.0, "kwh": 0.0, "kwh_km": 0.0, "trips": 0.0} for d in self.drivers}
         unassigned_km = 0.0
         total_km = total_kwh = kwh_km = 0.0
+        drivers: dict[str, dict] = {d: {"km": 0.0, "kwh": 0.0, "trips": 0.0} for d in self.drivers}
 
         for trip in self.trips:
             dist = trip["distance"]
-            energy = estimate_energy(trip.get("soc_start"), trip.get("soc_end"), self.capacity)
+            energy = _trip_energy(trip, self.capacity)
+            assigned = trip.get("drivers") or []
             total_km += dist
             if energy is not None:
                 total_kwh += energy
                 kwh_km += dist
-            assigned = [d for d in trip["drivers"] if d in drivers]
             if not assigned:
                 unassigned_km += dist
                 continue
@@ -319,10 +441,9 @@ class CarTracker:
                 drivers[d]["trips"] += share
                 if energy is not None:
                     drivers[d]["kwh"] += energy * share
-                    drivers[d]["kwh_km"] += dist * share
 
         def avg(kwh, km):
-            return round(kwh / km * 100, 1) if km > 0 and kwh > 0 else None
+            return round(kwh / km * 100, 2) if km > 0 else 0.0
 
         return {
             "drivers": {
@@ -330,7 +451,6 @@ class CarTracker:
                     "km": round(v["km"], 1),
                     "kwh": round(v["kwh"], 1),
                     "trips": round(v["trips"], 2),
-                    "consumption": avg(v["kwh"], v["kwh_km"]),
                 }
                 for d, v in drivers.items()
             },
@@ -346,10 +466,11 @@ class CarTracker:
             "entry_id": self.entry.entry_id,
             "name": self.name,
             "drivers": self.drivers,
-            "has_battery": bool(self.battery_entity and self.capacity),
+            "odometer_entity": self.odometer_entity,
+            "battery_entity": self.battery_entity,
             "capacity": self.capacity,
             "open_trip": self.open_trip,
-            "trips": [self.trip_view(t) for t in reversed(self.trips)],
+            "trips": [self.trip_view(t) for t in self.trips],
             "totals": self.totals(),
         }
 
@@ -365,9 +486,9 @@ class CarTracker:
 
     @callback
     def _save(self) -> None:
-        self._store.async_delay_save(self._serialize, 1.0)
+        self.hass.async_create_task(self._store.async_save(self._serialize()))
 
     @callback
     def _notify(self) -> None:
-        async_dispatcher_send(self.hass, f"{SIGNAL_UPDATED}_{self.entry.entry_id}")
+        async_dispatcher_send(self.hass, SIGNAL_UPDATED + "_" + self.entry.entry_id)
         async_dispatcher_send(self.hass, SIGNAL_ANY, self.entry.entry_id)

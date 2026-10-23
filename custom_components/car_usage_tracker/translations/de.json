@@ -3,35 +3,35 @@
     "step": {
       "user": {
         "title": "Ein Auto hinzufügen",
-        "description": "Erstelle einen Eintrag pro Auto. Akkusensor und Kapazität sind optional und dienen nur der Verbrauchsschätzung.",
+        "description": "Erstelle einen Eintrag pro Auto. Akkusensor und Kapazität des Akkus sind optional und dienen nur der Verbrauchsschätzung.",
         "data": {
           "name": "Name des Autos",
           "odometer_entity": "Kilometerstands-Entität",
           "battery_entity": "Akkustand-Sensor (optional)",
           "battery_capacity": "Nutzbare Akkukapazität (kWh)",
-          "idle_minutes": "Minuten ohne Kilometerstandsänderung bis zum Ende einer Fahrt",
+          "idle_minutes": "Anzahl Minuten ohne Kilometerstandsänderung, nach der eine Fahrt beendet wird",
           "drivers": "Fahrer*innen"
         }
       }
     },
     "error": {
-      "no_drivers": "Füge mindestens eine*n Fahrer*in hinzu.",
+      "no_drivers": "Füge mindestens eine*n Fahrer*in hinzu",
       "capacity_required": "Gib die Akkukapazität an, wenn ein Akkusensor ausgewählt ist."
     },
     "abort": {
-      "already_configured": "Diese Kilometerstands-Entität wird bereits für ein Auto verwendet."
+      "already_configured": "Diese Kilometerstands-Entität wird bereits in einem anderen Auto verwendet."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Autoeinstellungen",
+        "title": "Einstellungen des Autos",
         "data": {
           "name": "Name des Autos",
           "odometer_entity": "Kilometerstands-Entität",
           "battery_entity": "Akkustand-Sensor (optional)",
           "battery_capacity": "Nutzbare Akkukapazität (kWh)",
-          "idle_minutes": "Minuten ohne Kilometerstandsänderung bis zum Ende einer Fahrt",
+          "idle_minutes": "Anzahl Minuten ohne Kilometerstandsänderung, nach der eine Fahrt beendet wird",
           "drivers": "Fahrer*innen"
         }
       }
@@ -39,28 +39,6 @@
     "error": {
       "no_drivers": "Füge mindestens eine*n Fahrer*in hinzu.",
       "capacity_required": "Gib die Akkukapazität an, wenn ein Akkusensor ausgewählt ist."
-    }
-  },
-  "entity": {
-    "sensor": {
-      "total_km": {
-        "name": "Gesamt Kilometer"
-      },
-      "unassigned_km": {
-        "name": "Nicht zugeordnete Kilometer"
-      },
-      "open_trip_km": {
-        "name": "Aktive Fahrt"
-      },
-      "avg_consumption": {
-        "name": "Durchschnittlicher Energieverbrauch"
-      },
-      "driver_km": {
-        "name": "{driver} Kilometer"
-      },
-      "driver_energy": {
-        "name": "{driver} Energie"
-      }
     }
   }
 }
