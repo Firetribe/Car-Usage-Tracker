@@ -7,6 +7,7 @@ import uuid
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, State, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -31,6 +32,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 MIN_TRIP_KM = 0.1
+SAVE_DELAY = 5  # seconds; debounce disk writes
 
 
 def _to_float(value) -> float | None:
@@ -46,7 +48,7 @@ def _state_float(state: State | None) -> float | None:
     return _to_float(state.state)
 
 
-def _normalize_trip(t: dict) -> dict:
+def _normalize_trip(t: dict) -> dict | None:
     """Make trips from any earlier version consistent.
 
     Critical (0.4.1): never drop a trip just because a new field is missing.
@@ -55,7 +57,7 @@ def _normalize_trip(t: dict) -> dict:
     missing fields so the trip is preserved.
     """
     if not isinstance(t, dict):
-        return None  # type: ignore[return-value]
+        return None
 
     start_km = _to_float(t.get("start_km", t.get("start_odometer")))
     end_km = _to_float(t.get("end_km", t.get("end_odometer")))
@@ -227,8 +229,6 @@ class CarTracker:
         if self._recovered_legacy:
             self._save_now_needed = True
 
-        from homeassistant.helpers.event import async_track_state_change_event
-
         entities = [e for e in (self.odometer_entity, self.battery_entity) if e]
         if entities:
             self._unsubs.append(
@@ -319,7 +319,6 @@ class CarTracker:
         if self._idle_unsub:
             self._idle_unsub()
             self._idle_unsub = None
-        from homeassistant.helpers.event import async_call_later
 
         self._idle_unsub = async_call_later(
             self.hass, self.idle_seconds, self._close_trip
@@ -484,10 +483,13 @@ class CarTracker:
                 continue
             share = 1 / len(assigned)
             for d in assigned:
-                drivers[d]["km"] += dist * share
-                drivers[d]["trips"] += share
+                # Drivers may have been removed from the options after trips
+                # were assigned to them; never let that crash the totals.
+                bucket = drivers.setdefault(d, {"km": 0.0, "kwh": 0.0, "trips": 0.0})
+                bucket["km"] += dist * share
+                bucket["trips"] += share
                 if energy is not None:
-                    drivers[d]["kwh"] += energy * share
+                    bucket["kwh"] += energy * share
 
         def avg(kwh, km):
             return round(kwh / km * 100, 2) if km > 0 and kwh > 0 else None
@@ -532,7 +534,8 @@ class CarTracker:
 
     @callback
     def _save(self) -> None:
-        self.hass.async_create_task(self._store.async_save(self._serialize()))
+        # Debounced, serialized write instead of one task per change.
+        self._store.async_delay_save(self._serialize, SAVE_DELAY)
 
     @callback
     def _notify(self) -> None:
