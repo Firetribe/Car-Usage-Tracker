@@ -20,17 +20,18 @@ async def async_setup_entry(
 
     entities: list[CarSensor] = [
         CarSensor(
-            car, "total_km", "Total Kilometer", "km", "mdi:counter",
+            car, "total_km", "total_km", "km", "mdi:counter",
             lambda c: c.totals()["total_km"],
             fallback_name="Total Kilometer",
+            state_class=SensorStateClass.TOTAL_INCREASING,
         ),
         CarSensor(
-            car, "unassigned_km", "Unassigned Kilometer", "km", "mdi:map-marker-question",
+            car, "unassigned_km", "unassigned_km", "km", "mdi:map-marker-question",
             lambda c: c.totals()["unassigned_km"],
             fallback_name="Unassigned Kilometer",
         ),
         CarSensor(
-            car, "open_trip_km", "Current trip", "km", "mdi:car-clock",
+            car, "open_trip_km", "open_trip_km", "km", "mdi:car-clock",
             lambda c: round(
                 (c.open_trip["end_km"] - c.open_trip["start_km"]), 1
             ) if c.open_trip and c.open_trip.get("end_km") is not None else 0.0,
@@ -42,7 +43,7 @@ async def async_setup_entry(
     if car.battery_entity and car.capacity:
         entities.append(
             CarSensor(
-                car, "avg_consumption", "Average energy consumption",
+                car, "avg_consumption", "avg_consumption",
                 "kWh/100km", "mdi:lightning-bolt",
                 lambda c: c.totals()["consumption"],
                 fallback_name="Average energy consumption",
@@ -53,7 +54,7 @@ async def async_setup_entry(
         driver_id = driver.lower().replace(" ", "_")
         entities.append(
             CarSensor(
-                car, f"driver_{driver_id}_km", f"{driver} Kilometer", "km",
+                car, f"driver_{driver_id}_km", "driver_km", "km",
                 "mdi:account-route",
                 lambda c, d=driver: c.totals()["drivers"].get(d, {}).get("km", 0.0),
                 fallback_name=f"{driver} Kilometer",
@@ -62,7 +63,7 @@ async def async_setup_entry(
         if car.battery_entity and car.capacity:
             entities.append(
                 CarSensor(
-                    car, f"driver_{driver_id}_energy", f"{driver} Energy",
+                    car, f"driver_{driver_id}_energy", "driver_energy",
                     "kWh", "mdi:battery-charging",
                     lambda c, d=driver: c.totals()["drivers"].get(d, {}).get("kwh", 0.0),
                     fallback_name=f"{driver} Energy",
@@ -90,6 +91,9 @@ class CarSensor(SensorEntity):
     ) -> None:
         self._car = car
         self._value_fn = value_fn
+        # Stable unique_id so entities land in the entity registry and get
+        # attached to the device.
+        self._attr_unique_id = f"{car.entry.entry_id}_{key}"
         self._attr_translation_key = translation_key
         self._attr_name = fallback_name  # robust fallback if translation missing
         self._attr_icon = icon
