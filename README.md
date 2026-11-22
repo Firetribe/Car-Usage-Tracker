@@ -4,10 +4,10 @@ A Home Assistant custom integration that automatically records driving
 trips from an odometer entity (and optional battery / SoC entity) and
 breaks them down by driver.
 
-This README covers version **0.4.0**. For installation, sensor list
+This README covers version **1.1.0**. For installation, sensor list
 and configuration options see the HACS page rendered from this repo.
 
-## What's new in 0.4.0
+## What's new in 1.1.0
 
 ### End the current trip from the panel
 
@@ -70,16 +70,3 @@ The Car Usage panel was tuned for phones:
   grid and the trip table no longer triggers a horizontal scrollbar
   — chips and energy cells wrap, and the cards collapse to a
   two-column grid instead of one wide row.
-
-## Validation
-
-A stub test suite for the end-trip and merge logic lives under
-`tests/test_coordinator_merge_end.py` and can be run with:
-
-```bash
-python -m unittest tests.test_coordinator_merge_end
-```
-
-The test file ships stubs for the Home Assistant runtime so it can
-execute in any Python 3 environment without installing
-`homeassistant`.
