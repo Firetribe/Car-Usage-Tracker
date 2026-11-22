@@ -6,6 +6,7 @@ import uuid
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, State, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.storage import Store
@@ -20,7 +21,6 @@ from .const import (
     CONF_NAME,
     CONF_ODOMETER,
     DEFAULT_IDLE_MINUTES,
-    DOMAIN,
     EXTRA_LEGACY_KEYS,
     FALLBACK_NAME,
     LEGACY_STORAGE_KEY,
@@ -173,8 +173,8 @@ class CarTracker:
     async def _try_load(self, key: str) -> dict | None:
         try:
             data = await Store(self.hass, STORAGE_VERSION, key).async_load()
-        except Exception as err:  # pragma: no cover - defensive
-            _LOGGER.debug("Car tracker: load %s failed: %s", key, err)
+        except (HomeAssistantError, OSError, ValueError):
+            _LOGGER.exception("Car tracker: loading legacy storage key %s failed", key)
             return None
         return data
 
