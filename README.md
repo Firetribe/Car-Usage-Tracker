@@ -4,8 +4,42 @@ A Home Assistant custom integration that automatically records driving
 trips from an odometer entity (and optional battery / SoC entity) and
 breaks them down by driver.
 
-This README covers version **1.1.0**. For installation, sensor list
-and configuration options see the HACS page rendered from this repo.
+This README covers version **1.1.0**.
+
+## Installation
+
+### Via HACS (recommended)
+
+1. Open **HACS** in Home Assistant.
+2. Open the menu (⋮) in the top right and choose **Custom repositories**.
+3. Add `https://github.com/Firetribe/Car-Usage-Tracker` with the category
+   **Integration**.
+4. Search for **Car Usage Tracker** in HACS and download it.
+5. Restart Home Assistant.
+
+### Manual
+
+1. Copy the folder `custom_components/car_usage_tracker` into the
+   `custom_components` folder of your Home Assistant configuration.
+2. Restart Home Assistant.
+
+## Configuration
+
+1. Go to **Settings → Devices & services → Add integration**.
+2. Search for **Car Usage Tracker** and follow the setup dialog.
+
+The following options are available (one config entry per car):
+
+| Option | Description |
+| --- | --- |
+| Name | Display name of the car |
+| Odometer entity | Sensor reporting the odometer reading (km) |
+| Battery entity | Optional sensor reporting the battery state of charge (%) |
+| Battery capacity | Optional usable battery capacity (kWh), used to calculate energy and consumption |
+| Idle minutes | Minutes without odometer change before a trip is closed automatically (default: 10) |
+| Drivers | List of drivers that trips can be assigned to |
+
+After setup, a **Car Usage** panel appears in the sidebar.
 
 ## What's new in 1.1.0
 
@@ -36,7 +70,7 @@ records (for example because the idle threshold fired during a short
 stop). The panel now lets you select multiple trips with checkboxes
 and merge them into one. The merged trip:
 
-- takes the earliest `start` and `end_km` / latest `end` and `end_km`
+- takes the earliest `start` and `start_km` / latest `end` and `end_km`
   from the selected trips,
 - sums `distance`,
 - preserves the union of `drivers` (order of first appearance),

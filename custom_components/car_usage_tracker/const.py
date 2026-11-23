@@ -15,9 +15,9 @@ CONF_TRIP_IDS = "trip_ids"
 DEFAULT_IDLE_MINUTES = 10
 FALLBACK_NAME = "Car"
 
-# Storage schema version. 0.4.1 keeps trips even when new fields are missing
-# (e.g. "drivers" missing or "start_odometer" instead of "start_km") so that
-# previously-recorded trips are never silently dropped during a load.
+# Storage schema version. Since 0.4.1, trips are kept even when new fields are
+# missing (e.g. "drivers" missing or "start_odometer" instead of "start_km") so
+# that previously-recorded trips are never silently dropped during a load.
 STORAGE_VERSION = 1
 STORAGE_KEY_PREFIX = f"{DOMAIN}.car."
 LEGACY_STORAGE_KEY = f"{DOMAIN}.data"
