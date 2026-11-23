@@ -51,8 +51,8 @@ def _state_float(state: State | None) -> float | None:
 def _normalize_trip(t: dict) -> dict | None:
     """Make trips from any earlier version consistent.
 
-    Critical (0.4.1): never drop a trip just because a new field is missing.
-    Older builds wrote ``start_odometer``/``end_odometer`` instead of
+    Critical (since 0.4.1): never drop a trip just because a new field is
+    missing. Older builds wrote ``start_odometer``/``end_odometer`` instead of
     ``start_km``/``end_km`` and trips without drivers were valid. We default
     missing fields so the trip is preserved.
     """
@@ -179,9 +179,9 @@ class CarTracker:
         return data
 
     async def async_setup(self) -> None:
-        # 0.4.1: Tolerant loading. We try the per-car key first, then several
-        # legacy keys. We never throw trips away because of a key rename or
-        # because a trip record is missing a newer field; _normalize_trip
+        # Tolerant loading (since 0.4.1). We try the per-car key first, then
+        # several legacy keys. We never throw trips away because of a key rename
+        # or because a trip record is missing a newer field; _normalize_trip
         # defaults missing fields.
         data = await self._store.async_load()
 
